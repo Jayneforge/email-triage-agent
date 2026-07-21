@@ -1,6 +1,6 @@
 # Email Triage Agent
 
-An AI-powered inbox agent built in n8n that reads, classifies, labels, and acts on incoming email — without the owner opening it. Built as a portfolio piece after a LinkedIn post about a 25,000-unread inbox turned into an actual automation project.
+An AI-powered inbox agent built in n8n that reads, classifies, labels, and acts on incoming email — without the owner opening it. Built as a initial piece improvement after a LinkedIn post about a 25,000-unread inbox turned into an actual automation project.
 
 Full technical breakdown, architecture diagram, and the debugging log are in [WORKFLOW.md](./WORKFLOW.md).
 
