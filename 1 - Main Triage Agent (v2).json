@@ -1,0 +1,1394 @@
+{
+  "name": "1 - Main Triage Agent (v2)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Main Triage Agent v2\n\nAdds to v1:\n- Checks 'Sender Preferences' before logging a promo sender (never re-asks about a decided sender)\n- Detects subscription/appointment dates, dedupes against 'Subscriptions Tracker', creates/updates Google Calendar events with 2-day-before + day-of reminders\n\n**Sheets needed (same spreadsheet, different tabs):**\n`Processed Log`, `Promo Mentions This Week`, `Sender Preferences`, `Subscriptions Tracker`\n\nFill in [[BRACKETED]] placeholders before running: Gmail cred, Anthropic key, label IDs, Sheet ID, Calendar ID, Telegram cred/chat.",
+        "height": 380,
+        "width": 380
+      },
+      "id": "4d15ebe0-f26d-4125-87b8-657c609f2680",
+      "name": "Overview1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -2816,
+        1552
+      ]
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "q": "is:unread"
+        },
+        "options": {}
+      },
+      "id": "33572d35-d853-46e0-bf1f-7241e4ad3ee6",
+      "name": "New Unread Email1",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -2320,
+        1808
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "CEL4qdDFm10bEzkj",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization ",
+              "value": "[[PLACE YOUR API KEY HERE]]"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  model: \"openai/gpt-oss-120b\",\n  reasoning_effort: \"medium\",\n  messages: [\n    { role: \"system\", content: \"You are an email triage assistant. Judge category and action_required independently. Category reflects what kind of email this is; action_required reflects whether a reasonable recipient needs to do something, regardless of category. An email can be Spam-like or suspicious AND still have action_required=true, because a demand for a reply or personal info is itself something the recipient needs to consciously act on (even if that action is 'do not comply'). Do not set action_required=false just because something looks like spam or phishing. Respond with ONLY valid JSON, no preamble, no markdown fences, matching exactly: {\\\"category\\\": one of [\\\"Urgent\\\",\\\"Newsletter\\\",\\\"Receipt\\\",\\\"Task\\\",\\\"Personal\\\",\\\"Spam-like\\\"], \\\"priority\\\": one of [\\\"High\\\",\\\"Medium\\\",\\\"Low\\\"], \\\"action_required\\\": boolean, \\\"action_summary\\\": string, \\\"unsubscribe_candidate\\\": boolean, \\\"is_subscription_or_appointment\\\": boolean, \\\"event_type\\\": one of [\\\"subscription_renewal\\\",\\\"subscription_expiration\\\",\\\"appointment\\\",\\\"none\\\"], \\\"event_date\\\": string (YYYY-MM-DD, empty if none/cannot determine), \\\"entity_name\\\": string (e.g. Netflix, Dr. Adaeze - Dental Checkup, empty if none), \\\"is_reminder_email\\\": boolean (true if this email IS a reminder about an already-existing subscription/appointment, false if it's the original confirmation revealing a future date)}\" },\n    { role: \"user\", content: \"From: \" + $('Normalize Fields').first().json.from + \"\\nSubject: \" + $('Normalize Fields').first().json.subject + \"\\nSnippet: \" + $('Normalize Fields').first().json.snippet + \"\\nToday's date: \" + $now.toISODate() }\n  ]\n}) }}",
+        "options": {}
+      },
+      "id": "bc188982-82ac-4ac5-b45a-a3121a157512",
+      "name": "AI Classify Email1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1584,
+        1808
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const labelMap = {\n  'Urgent': 'Label_4032412265699218502', 'Newsletter': 'Label_7234085200392634367', 'Receipt': 'Label_2101271369811818868',\n  'Task': 'Label_558085458143635233', 'Personal': 'Label_4235438555674045296', 'Spam-like': 'Label_1679977285354885820'\n};\nconst item = $input.first().json;\nreturn [{ json: {\n  ...item,\n  category_label_id: labelMap[item.category] || labelMap['Personal'],\n  needs_action_label_id: 'Label_7865694268348548798',\n  safe_to_archive: ['Newsletter','Receipt','Spam-like'].includes(item.category) && !item.action_required\n} }];"
+      },
+      "id": "4c9cb271-8ead-4a59-a529-2fdf20cf3d2c",
+      "name": "Map Category to Label ID1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1072,
+        1808
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $json.message_id }}",
+        "labelIds": "={{ $json.category_label_id }}"
+      },
+      "id": "9af01e8f-a8a5-4625-8342-43da025d97b6",
+      "name": "Add Category Label1",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        -768,
+        1184
+      ],
+      "webhookId": "e3cd8cfb-c578-4add-84ec-12a85482d03c",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "CEL4qdDFm10bEzkj",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.action_required }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "aa18fe2b-88ea-4e33-9c4d-f05095328eba",
+      "name": "Action Required?1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -768,
+        1440
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $json.message_id }}",
+        "labelIds": "={{ [ $json.needs_action_label_id ] }}"
+      },
+      "id": "327ecce0-d6fd-4926-b1b9-ef4103b687b3",
+      "name": "Add Needs Action Label1",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        -384,
+        1200
+      ],
+      "webhookId": "6d58e6ab-acbf-404c-b0d0-f50129ad263b",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "CEL4qdDFm10bEzkj",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "6400591434",
+        "text": "=🔴 Urgent email:\n\nFrom: {{ $json.from }}\nSubject: {{ $json.subject }}\nWhy: {{ $json.action_summary }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "558077dc-5ca6-4a6b-99b7-8ae1e6898c3f",
+      "name": "Send Urgent Alert1",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -400,
+        1408
+      ],
+      "webhookId": "3e9ab2ca-0b22-4cf4-89a3-86a96adbd7c1",
+      "credentials": {
+        "telegramApi": {
+          "id": "e1hHtBEfIWBasJb9",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.safe_to_archive }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d7e18674-86f8-440c-8f15-5821643b273f",
+      "name": "Safe to Archive?1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -752,
+        1664
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "removeLabels",
+        "messageId": "={{ $json.message_id }}",
+        "labelIds": "={{ ['INBOX'] }}"
+      },
+      "id": "4cc9fcfc-4941-478f-b34d-621221c9056f",
+      "name": "Archive1",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        -224,
+        1648
+      ],
+      "webhookId": "5e553fb3-b795-4f8c-9f9d-4f38ac28aa75",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "CEL4qdDFm10bEzkj",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "value": "1lyJz3yrbF05xh-7HIhuTicdiqNCNU_3B8fsZWpYUkps",
+          "mode": "id"
+        },
+        "sheetName": {
+          "value": "Processed Log",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "from": "={{ $json.from }}",
+            "subject": "={{ $json.subject }}",
+            "category": "={{ $json.category }}",
+            "priority": "={{ $json.priority }}",
+            "action_required": "={{ $json.action_required }}",
+            "action_summary": "={{ $json.action_summary }}",
+            "archived": "={{ $json.safe_to_archive }}",
+            "is_subscription_or_appointment": "={{ $json.is_subscription_or_appointment }}",
+            "entity_id": "={{ $json.entity_id }}",
+            "processed_at": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "from",
+              "displayName": "from",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "subject",
+              "displayName": "subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "priority",
+              "displayName": "priority",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "action_required",
+              "displayName": "action_required",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "action_summary",
+              "displayName": "action_summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "archived",
+              "displayName": "archived",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "is_subscription_or_appointment",
+              "displayName": "is_subscription_or_appointment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "entity_id",
+              "displayName": "entity_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "processed_at",
+              "displayName": "processed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "5e9889c1-0636-4fea-9f1c-3b088ed8e8aa",
+      "name": "Log Processed Email1",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -752,
+        1872
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "sz5NKilchrJgzsru",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.unsubscribe_candidate }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              },
+              "id": "11501173-1bb8-4edc-adb5-756ad74ff935"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a799ea47-dcf0-4d54-8dda-dfc203b0d1d5",
+      "name": "Unsubscribe Candidate?1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -768,
+        2048
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "value": "1lyJz3yrbF05xh-7HIhuTicdiqNCNU_3B8fsZWpYUkps",
+          "mode": "id"
+        },
+        "sheetName": {
+          "value": "Sender Preferences",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "sender_email",
+              "lookupValue": "={{ $json.sender_email }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "87e3d341-df27-4ee1-953e-bb3271c832ea",
+      "name": "Check Sender Preferences1",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -528,
+        1968
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "sz5NKilchrJgzsru",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.sender_email === undefined || $json.sender_email === '' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              },
+              "id": "a2d936a3-fb31-450f-b6cf-bf0209b75e0f"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a9fef7c7-b57b-45ce-b05f-42e43122d18a",
+      "name": "No Prior Decision?1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -272,
+        1968
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const header = $('Parse Classification').first().json.list_unsubscribe_header || '';\nconst httpMatch = header.match(/<(https?:[^>]+)>/);\nconst mailtoMatch = header.match(/<mailto:([^>]+)>/);\nconst item = $('Parse Classification').first().json;\nreturn [{ json: {\n  sender_email: item.sender_email,\n  sender_domain: (item.sender_email.split('@')[1] || ''),\n  subject: item.subject,\n  unsubscribe_method: httpMatch ? 'link' : (mailtoMatch ? 'mailto' : 'none_found'),\n  unsubscribe_target: httpMatch ? httpMatch[1] : (mailtoMatch ? mailtoMatch[1] : ''),\n  received_at: item.received_at\n} }];"
+      },
+      "id": "80ea769c-8a68-4868-a13a-c47ed6fef793",
+      "name": "Build Promo Mention Row1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        16,
+        1856
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "value": "1lyJz3yrbF05xh-7HIhuTicdiqNCNU_3B8fsZWpYUkps",
+          "mode": "id"
+        },
+        "sheetName": {
+          "value": "Promo Mentions This Week",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "sender_email": "={{ $json.sender_email }}",
+            "sender_domain": "={{ $json.sender_domain }}",
+            "subject": "={{ $json.subject }}",
+            "unsubscribe_method": "={{ $json.unsubscribe_method }}",
+            "unsubscribe_target": "={{ $json.unsubscribe_target }}",
+            "received_at": "={{ $json.received_at }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "sender_email",
+              "displayName": "sender_email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "sender_domain",
+              "displayName": "sender_domain",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "subject",
+              "displayName": "subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "unsubscribe_method",
+              "displayName": "unsubscribe_method",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "unsubscribe_target",
+              "displayName": "unsubscribe_target",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "received_at",
+              "displayName": "received_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "d1f0c983-8f8f-4cf3-8e57-42fc0212f6ca",
+      "name": "Log Promo Mention1",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        352,
+        1856
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "sz5NKilchrJgzsru",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.is_subscription_or_appointment }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              },
+              "id": "bcc3a651-55c2-4f1b-9818-2e2505657193"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a03a2dcf-dd4a-4010-accb-492b76be0929",
+      "name": "Subscription/Appointment?1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -752,
+        2336
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "value": "1lyJz3yrbF05xh-7HIhuTicdiqNCNU_3B8fsZWpYUkps",
+          "mode": "id"
+        },
+        "sheetName": {
+          "value": "Subscriptions Tracker",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "entity_id",
+              "lookupValue": "={{ $json.entity_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "67e93b61-f13b-4d95-9ffb-beacbf51a425",
+      "name": "Check Subscriptions Tracker1",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -496,
+        2304
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "sz5NKilchrJgzsru",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.row_number === undefined || $json.row_number === '' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              },
+              "id": "252d36c9-f405-457b-9ed6-2a1980d87019"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ab570e17-8dd0-468c-9d87-ec1d8e9b5745",
+      "name": "New Entity?1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -272,
+        2320
+      ]
+    },
+    {
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "value": "janedydy@gmail.com",
+          "mode": "list",
+          "cachedResultName": "janedydy@gmail.com"
+        },
+        "start": "={{ $('Parse Classification').first().json.event_date }}",
+        "end": "={{ $('Parse Classification').first().json.event_date }}",
+        "useDefaultReminders": false,
+        "additionalFields": {
+          "summary": "={{ $('Parse Classification').first().json.entity_name }} — {{ $('Parse Classification').first().json.event_type }}"
+        }
+      },
+      "id": "2102a17b-d333-47d2-a456-3f59ebf59fa2",
+      "name": "Create Calendar Event1",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        64,
+        2160
+      ],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "fKa1eww68By9k05r",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "value": "1lyJz3yrbF05xh-7HIhuTicdiqNCNU_3B8fsZWpYUkps",
+          "mode": "id"
+        },
+        "sheetName": {
+          "value": "Subscriptions Tracker",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "entity_id": "={{ $('Parse Classification').first().json.entity_id }}",
+            "entity_name": "={{ $('Parse Classification').first().json.entity_name }}",
+            "event_type": "={{ $('Parse Classification').first().json.event_type }}",
+            "event_date": "={{ $('Parse Classification').first().json.event_date }}",
+            "calendar_event_id": "={{ $json.id }}",
+            "reminder_2day_sent": false,
+            "reminder_dayof_sent": false,
+            "confirmed_by_company_reminder": "={{ $('Parse Classification').first().json.is_reminder_email }}",
+            "status": "active",
+            "first_detected_at": "={{ $now.toISO() }}",
+            "last_updated_at": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "entity_id",
+              "displayName": "entity_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "entity_name",
+              "displayName": "entity_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "event_type",
+              "displayName": "event_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "event_date",
+              "displayName": "event_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "calendar_event_id",
+              "displayName": "calendar_event_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reminder_2day_sent",
+              "displayName": "reminder_2day_sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reminder_dayof_sent",
+              "displayName": "reminder_dayof_sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "confirmed_by_company_reminder",
+              "displayName": "confirmed_by_company_reminder",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "first_detected_at",
+              "displayName": "first_detected_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_updated_at",
+              "displayName": "last_updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "488b09cb-51d5-41f5-94c4-28d75701cfc2",
+      "name": "Add to Subscriptions Tracker1",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        368,
+        2160
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "sz5NKilchrJgzsru",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Entity already tracked. Only touch reminder flags if the date actually changed.\nconst incoming = $('Parse Classification').first().json;\nconst existing = $input.first().json;\nconst dateChanged = existing.event_date !== incoming.event_date;\nreturn [{ json: {\n  row_number: existing.row_number,\n  entity_id: existing.entity_id,\n  event_date: dateChanged ? incoming.event_date : existing.event_date,\n  reminder_2day_sent: dateChanged ? false : existing.reminder_2day_sent,\n  reminder_dayof_sent: dateChanged ? false : existing.reminder_dayof_sent,\n  confirmed_by_company_reminder: incoming.is_reminder_email ? true : existing.confirmed_by_company_reminder,\n  calendar_event_id: existing.calendar_event_id,\n  date_changed: dateChanged\n} }];"
+      },
+      "id": "924d7045-0098-44d6-ac63-625653074d09",
+      "name": "Decide Tracker Update1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        16,
+        2416
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "value": "1lyJz3yrbF05xh-7HIhuTicdiqNCNU_3B8fsZWpYUkps",
+          "mode": "id"
+        },
+        "sheetName": {
+          "value": "Subscriptions Tracker",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $json.row_number }}",
+            "event_date": "={{ $json.event_date }}",
+            "reminder_2day_sent": "={{ $json.reminder_2day_sent }}",
+            "reminder_dayof_sent": "={{ $json.reminder_dayof_sent }}",
+            "confirmed_by_company_reminder": "={{ $json.confirmed_by_company_reminder }}",
+            "last_updated_at": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "entity_id",
+              "displayName": "entity_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "entity_name",
+              "displayName": "entity_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "event_type",
+              "displayName": "event_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "event_date",
+              "displayName": "event_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "calendar_event_id",
+              "displayName": "calendar_event_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "reminder_2day_sent",
+              "displayName": "reminder_2day_sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reminder_dayof_sent",
+              "displayName": "reminder_dayof_sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "confirmed_by_company_reminder",
+              "displayName": "confirmed_by_company_reminder",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "first_detected_at",
+              "displayName": "first_detected_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "last_updated_at",
+              "displayName": "last_updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "699e0f86-aee5-449e-95ab-95d12f562160",
+      "name": "Update Tracker Row1",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        368,
+        2416
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "sz5NKilchrJgzsru",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e54b378d-af4e-4a1c-8a6e-dfa22049a3aa",
+              "name": "message_id",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "4620f617-ecfc-446d-909c-992d0fc74165",
+              "name": "thread_id",
+              "value": "={{ $json.threadId }}",
+              "type": "string"
+            },
+            {
+              "id": "94c72753-caf3-44f1-a8c8-ee04f9ee0060",
+              "name": "from",
+              "value": "={{ $json.from.value[0].name }}",
+              "type": "string"
+            },
+            {
+              "id": "28d40d49-da12-4e2d-a90e-289b5f743ff4",
+              "name": "sender_email",
+              "value": "={{ $json.from?.value?.[0]?.address || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "672f2ab8-a574-463f-a71b-5023a3f50bdd",
+              "name": "subject",
+              "value": "={{ $json.subject || $json.headers?.subject || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "87771f20-dd88-4c2e-b559-549acb4b6bbe",
+              "name": "snippet",
+              "value": "={{ $json.text ? $json.text.slice(0,300) : '' }}",
+              "type": "string"
+            },
+            {
+              "id": "7497f275-d31e-452b-ae2e-0fc8d01c525c",
+              "name": "list_unsubscribe_header",
+              "value": "={{ $json.headers?.['list-unsubscribe'] || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "cc5c3c7e-0bd4-4c20-a05b-e742c82d7d89",
+              "name": "received_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "bcec61fb-8839-49a0-959c-a24927dafb59",
+      "name": "Normalize Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -2048,
+        1808
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.choices[0].message.content|| '{}';\nlet p;\ntry { p = JSON.parse(raw); } catch (e) {\n  p = { category:'Personal', priority:'Medium', action_required:false, action_summary:'', unsubscribe_candidate:false, is_subscription_or_appointment:false, event_type:'none', event_date:'', entity_name:'', is_reminder_email:false };\n}\nconst prior = $('Normalize Fields').first().json;\nreturn [{ json: { ...prior, ...p, entity_id: p.entity_name ? (p.entity_name.toLowerCase().replace(/[^a-z0-9]+/g,'-') + '__' + p.event_type) : '' } }];"
+      },
+      "id": "fcc2cf38-5f80-4355-80f7-e800454f6a1c",
+      "name": "Parse Classification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1328,
+        1808
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "removeLabels",
+        "messageId": "={{ $json.message_id }}",
+        "labelIds": "={{ ['UNREAD'] }}"
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        -1840,
+        1808
+      ],
+      "id": "41562b17-8c02-47ab-bafe-5affed4122f9",
+      "name": "Mark as Read",
+      "webhookId": "a283107f-2eb8-4148-a0f5-a2104166f93f",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "CEL4qdDFm10bEzkj",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "New Unread Email1": {
+      "main": [
+        [
+          {
+            "node": "Normalize Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Classify Email1": {
+      "main": [
+        [
+          {
+            "node": "Parse Classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Category to Label ID1": {
+      "main": [
+        [
+          {
+            "node": "Add Category Label1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Action Required?1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Safe to Archive?1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Processed Email1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Unsubscribe Candidate?1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Subscription/Appointment?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Action Required?1": {
+      "main": [
+        [
+          {
+            "node": "Add Needs Action Label1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Urgent Alert1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Safe to Archive?1": {
+      "main": [
+        [
+          {
+            "node": "Archive1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unsubscribe Candidate?1": {
+      "main": [
+        [
+          {
+            "node": "Check Sender Preferences1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Sender Preferences1": {
+      "main": [
+        [
+          {
+            "node": "No Prior Decision?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Prior Decision?1": {
+      "main": [
+        [
+          {
+            "node": "Build Promo Mention Row1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Promo Mention Row1": {
+      "main": [
+        [
+          {
+            "node": "Log Promo Mention1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Subscription/Appointment?1": {
+      "main": [
+        [
+          {
+            "node": "Check Subscriptions Tracker1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Subscriptions Tracker1": {
+      "main": [
+        [
+          {
+            "node": "New Entity?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "New Entity?1": {
+      "main": [
+        [
+          {
+            "node": "Create Calendar Event1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Decide Tracker Update1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Calendar Event1": {
+      "main": [
+        [
+          {
+            "node": "Add to Subscriptions Tracker1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide Tracker Update1": {
+      "main": [
+        [
+          {
+            "node": "Update Tracker Row1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Fields": {
+      "main": [
+        [
+          {
+            "node": "Mark as Read",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Classification": {
+      "main": [
+        [
+          {
+            "node": "Map Category to Label ID1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark as Read": {
+      "main": [
+        [
+          {
+            "node": "AI Classify Email1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "3ebbb182-462f-46c6-bbc3-1b080fc1c908",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "36f1f84b1ee3610e43131bdce5adf045326f2dd9eee626dcc02d492cdb812525"
+  },
+  "nodeGroups": [],
+  "id": "KlUw7e3koRKJOAAI",
+  "tags": []
+}

@@ -1,0 +1,902 @@
+{
+  "name": "3 - Telegram Button Handler",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Telegram Button Handler\n\nSeparate trigger from the digest sender — this one listens for button taps (callback_query), not chat messages.\n\nOn Unsubscribe: hits the link (HTTP GET) or auto-sends the mailto unsubscribe request via Gmail, per your call.\nEither way: writes the decision to Sender Preferences permanently (never asked again) and edits the original Telegram message so it doesn't sit there stale.",
+        "height": 300,
+        "width": 380
+      },
+      "id": "89a1e51e-baf7-477a-86f4-86ac91edd79e",
+      "name": "Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -2656,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "updates": [
+          "callback_query"
+        ],
+        "additionalFields": {}
+      },
+      "id": "e6017b3c-de98-4a0d-adf7-55c7c8abd635",
+      "name": "Button Tapped",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -2160,
+        112
+      ],
+      "webhookId": "aa053339-c7f9-4668-a8ed-4b3235e2c434",
+      "credentials": {
+        "telegramApi": {
+          "id": "e1hHtBEfIWBasJb9",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const cb = $json.callback_query;\nconst [action, uuid] = cb.data.split('|');\nreturn [{ json: {\n  action, uuid,\n  callback_query_id: cb.id,\n  chat_id: cb.message.chat.id,\n  message_id: cb.message.message_id\n} }];"
+      },
+      "id": "8d7be10d-323d-462c-8a9f-42ae2871c695",
+      "name": "Parse Callback Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1888,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "value": "1lyJz3yrbF05xh-7HIhuTicdiqNCNU_3B8fsZWpYUkps",
+          "mode": "id"
+        },
+        "sheetName": {
+          "value": "Promo Senders This Week",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "uuid",
+              "lookupValue": "={{ $json.uuid }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "162fb6be-11e1-458e-9743-0f328156cac2",
+      "name": "Look Up Sender Row",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -1632,
+        112
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "sz5NKilchrJgzsru",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const row = $input.first().json;\nconst cb = $('Parse Callback Data').first().json;\nreturn [{ json: { ...row, action: cb.action, callback_query_id: cb.callback_query_id, chat_id: cb.chat_id, message_id: cb.message_id } }];"
+      },
+      "id": "957849be-4aba-436b-899f-aa52aa4a78f8",
+      "name": "Merge Row + Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1376,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "unsub",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and",
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                }
+              }
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "keep",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and",
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                }
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e6124d3b-0fe8-49bb-8f15-a9aec931d8ad",
+      "name": "Unsubscribe or Keep?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -1120,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.unsubscribe_method }}",
+              "rightValue": "link",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "935d831c-dab5-4095-bb6b-f51bd0f71643",
+      "name": "Method = Link?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -928,
+        -224
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.unsubscribe_target }}",
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "id": "964cac1c-a0e5-4f76-9177-b059d78af588",
+      "name": "Hit Unsubscribe Link",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -592,
+        -336
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.unsubscribe_target }}",
+        "subject": "Unsubscribe request",
+        "message": "Please remove this address from your mailing list. Thank you.",
+        "options": {}
+      },
+      "id": "9fcf817b-5129-4502-9039-51377577742e",
+      "name": "Auto-Send Unsubscribe Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        -592,
+        -48
+      ],
+      "webhookId": "17b1dc89-1c07-4812-a340-6c4df8ccbd6d",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "CEL4qdDFm10bEzkj",
+          "name": "Gmail account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "value": "1lyJz3yrbF05xh-7HIhuTicdiqNCNU_3B8fsZWpYUkps",
+          "mode": "id"
+        },
+        "sheetName": {
+          "value": "Promo Senders This Week",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $json.row_number }}",
+            "decision": "unsubscribed",
+            "decision_at": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "uuid",
+              "displayName": "uuid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "sender_email",
+              "displayName": "sender_email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "sender_domain",
+              "displayName": "sender_domain",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "first_seen_this_week",
+              "displayName": "first_seen_this_week",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "last_subject",
+              "displayName": "last_subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "count_this_week",
+              "displayName": "count_this_week",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "unsubscribe_method",
+              "displayName": "unsubscribe_method",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "unsubscribe_target",
+              "displayName": "unsubscribe_target",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "decision",
+              "displayName": "decision",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "decision_at",
+              "displayName": "decision_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "a1d10cc9-a92c-4a8f-b03f-1e5ccfc83c8d",
+      "name": "Update Row (Unsubscribed)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -320,
+        -224
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "sz5NKilchrJgzsru",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "value": "1lyJz3yrbF05xh-7HIhuTicdiqNCNU_3B8fsZWpYUkps",
+          "mode": "id"
+        },
+        "sheetName": {
+          "value": "Sender Preferences",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "sender_email": "={{ $json.sender_email }}",
+            "decision": "unsubscribed",
+            "decision_at": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "sender_email",
+              "displayName": "sender_email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "decision",
+              "displayName": "decision",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "decision_at",
+              "displayName": "decision_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "6cff64d4-99ff-41aa-b9b7-08191b40e94b",
+      "name": "Save Preference (Unsubscribed)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        16,
+        -224
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "sz5NKilchrJgzsru",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "value": "1lyJz3yrbF05xh-7HIhuTicdiqNCNU_3B8fsZWpYUkps",
+          "mode": "id"
+        },
+        "sheetName": {
+          "value": "Promo Senders This Week",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $json.row_number }}",
+            "decision": "kept",
+            "decision_at": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "uuid",
+              "displayName": "uuid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "sender_email",
+              "displayName": "sender_email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "sender_domain",
+              "displayName": "sender_domain",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "first_seen_this_week",
+              "displayName": "first_seen_this_week",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "last_subject",
+              "displayName": "last_subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "count_this_week",
+              "displayName": "count_this_week",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "unsubscribe_method",
+              "displayName": "unsubscribe_method",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "unsubscribe_target",
+              "displayName": "unsubscribe_target",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "decision",
+              "displayName": "decision",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "decision_at",
+              "displayName": "decision_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "6f7a9551-05d6-4aec-b911-9c8867fc8579",
+      "name": "Update Row (Kept)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -592,
+        336
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "sz5NKilchrJgzsru",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "value": "1lyJz3yrbF05xh-7HIhuTicdiqNCNU_3B8fsZWpYUkps",
+          "mode": "id"
+        },
+        "sheetName": {
+          "value": "Sender Preferences",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "sender_email": "={{ $('Unsubscribe or Keep?').item.json.sender_email }}",
+            "decision": "kept",
+            "decision_at": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "sender_email",
+              "displayName": "sender_email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "decision",
+              "displayName": "decision",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "decision_at",
+              "displayName": "decision_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "979d6b29-70e2-4e19-ac9b-bbb3f73b9977",
+      "name": "Save Preference (Kept)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -272,
+        336
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "sz5NKilchrJgzsru",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Merge Row + Action').first().json.callback_query_id }}",
+        "additionalFields": {}
+      },
+      "id": "628c35d4-7827-4022-9660-2482ad23694a",
+      "name": "Clear Loading Spinner",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        32,
+        96
+      ],
+      "webhookId": "8e8af3fe-88bc-41da-b60d-1d50414c1761",
+      "credentials": {
+        "telegramApi": {
+          "id": "e1hHtBEfIWBasJb9",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "editMessageText",
+        "chatId": "={{ $('Merge Row + Action').first().json.chat_id }}",
+        "messageId": "={{ $('Merge Row + Action').first().json.message_id }}",
+        "text": "={{ $('Merge Row + Action').first().json.action === 'unsub' ? '✅ Unsubscribed from ' + $('Merge Row + Action').first().json.sender_email : '👍 Keeping ' + $('Merge Row + Action').first().json.sender_email + ' — won\\'t ask again.' }}",
+        "additionalFields": {}
+      },
+      "id": "419df7c6-54d2-4d99-8b08-c371f8a8b989",
+      "name": "Edit Original Message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        400,
+        128
+      ],
+      "webhookId": "a3e5e45d-d05e-45b8-9f93-ef98cb63202d",
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "e1hHtBEfIWBasJb9",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Button Tapped": {
+      "main": [
+        [
+          {
+            "node": "Parse Callback Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Callback Data": {
+      "main": [
+        [
+          {
+            "node": "Look Up Sender Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Look Up Sender Row": {
+      "main": [
+        [
+          {
+            "node": "Merge Row + Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Row + Action": {
+      "main": [
+        [
+          {
+            "node": "Unsubscribe or Keep?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Clear Loading Spinner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unsubscribe or Keep?": {
+      "main": [
+        [
+          {
+            "node": "Method = Link?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Row (Kept)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Method = Link?": {
+      "main": [
+        [
+          {
+            "node": "Hit Unsubscribe Link",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Auto-Send Unsubscribe Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hit Unsubscribe Link": {
+      "main": [
+        [
+          {
+            "node": "Update Row (Unsubscribed)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auto-Send Unsubscribe Email": {
+      "main": [
+        [
+          {
+            "node": "Update Row (Unsubscribed)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Row (Unsubscribed)": {
+      "main": [
+        [
+          {
+            "node": "Save Preference (Unsubscribed)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Preference (Unsubscribed)": {
+      "main": [
+        [
+          {
+            "node": "Edit Original Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Row (Kept)": {
+      "main": [
+        [
+          {
+            "node": "Save Preference (Kept)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Preference (Kept)": {
+      "main": [
+        [
+          {
+            "node": "Edit Original Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clear Loading Spinner": {
+      "main": [
+        [
+          {
+            "node": "Edit Original Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "938e525d-26ef-4a6c-bcd3-e5c8d3a05937",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "36f1f84b1ee3610e43131bdce5adf045326f2dd9eee626dcc02d492cdb812525"
+  },
+  "nodeGroups": [],
+  "id": "lCfuECRoFv3TNYOG",
+  "tags": []
+}

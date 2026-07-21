@@ -1,0 +1,392 @@
+{
+  "name": "2 - Friday Digest Sender",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Friday Digest Sender\n\nRuns Friday evening. Pulls this week's raw promo mentions, groups them into unique senders, double-checks against Sender Preferences (safety net in case of races with Workflow 1), writes the deduped list into 'Promo Senders This Week' with a fresh uuid per sender, then sends one Telegram message per sender with Unsubscribe/Keep buttons.\n\nWorkflow 3 (Telegram Button Handler) reads the uuid back from the button tap.",
+        "height": 300,
+        "width": 380
+      },
+      "id": "d2f47145-4fc8-4257-a561-803b7a306509",
+      "name": "Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -848,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 18 * * 5"
+            }
+          ]
+        }
+      },
+      "id": "a2a3a515-9bfa-4cd0-a4ca-5e9a7a97f260",
+      "name": "Every Friday 6pm",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -416,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "value": "1lyJz3yrbF05xh-7HIhuTicdiqNCNU_3B8fsZWpYUkps",
+          "mode": "id"
+        },
+        "sheetName": {
+          "value": "Promo Mentions This Week",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "a51fa8e6-d9a5-45f7-9c0f-1ec85c7069a2",
+      "name": "Get Promo Mentions",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -192,
+        80
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "sz5NKilchrJgzsru",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1lyJz3yrbF05xh-7HIhuTicdiqNCNU_3B8fsZWpYUkps",
+          "mode": "list",
+          "cachedResultName": "Email Triage Agent — Data",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1lyJz3yrbF05xh-7HIhuTicdiqNCNU_3B8fsZWpYUkps/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "value": "Sender Preferences",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "de793156-8ae9-4981-8ef8-86128c1d11a1",
+      "name": "Get Sender Preferences",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        32,
+        96
+      ],
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "sz5NKilchrJgzsru",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const mentions = $('Get Promo Mentions').all().map(i => i.json).filter(m => m && m.sender_email);\nconst decided = new Set($('Get Sender Preferences').all().map(i => i.json).filter(p => p && p.sender_email).map(p => p.sender_email));\n\n// only count this week (Mon 00:00 -> now)\nconst now = new Date();\nconst day = now.getDay() || 7;\nconst monday = new Date(now); monday.setDate(now.getDate() - day + 1); monday.setHours(0,0,0,0);\n\nconst thisWeek = mentions.filter(m => new Date(m.received_at) >= monday && !decided.has(m.sender_email));\n\nconst bySender = {};\nfor (const m of thisWeek) {\n  if (!bySender[m.sender_email]) {\n    bySender[m.sender_email] = {\n      uuid: Math.random().toString(36).slice(2) + Date.now().toString(36),\n      sender_email: m.sender_email, sender_domain: m.sender_domain,\n      first_seen_this_week: m.received_at, last_subject: m.subject, count_this_week: 0,\n      unsubscribe_method: m.unsubscribe_method, unsubscribe_target: m.unsubscribe_target,\n      decision: 'pending'\n    };\n  }\n  bySender[m.sender_email].count_this_week += 1;\n  bySender[m.sender_email].last_subject = m.subject;\n}\nreturn Object.values(bySender).map(v => ({ json: v }));"
+      },
+      "id": "2584e173-ff86-4821-afbb-42a02f72e8df",
+      "name": "Group Into Unique Senders",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        256,
+        80
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "value": "1lyJz3yrbF05xh-7HIhuTicdiqNCNU_3B8fsZWpYUkps",
+          "mode": "id"
+        },
+        "sheetName": {
+          "value": "Promo Senders This Week",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "uuid": "={{ $json.uuid }}",
+            "sender_email": "={{ $json.sender_email }}",
+            "sender_domain": "={{ $json.sender_domain }}",
+            "first_seen_this_week": "={{ $json.first_seen_this_week }}",
+            "last_subject": "={{ $json.last_subject }}",
+            "count_this_week": "={{ $json.count_this_week }}",
+            "unsubscribe_method": "={{ $json.unsubscribe_method }}",
+            "unsubscribe_target": "={{ $json.unsubscribe_target }}",
+            "decision": "pending"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "uuid",
+              "displayName": "uuid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "sender_email",
+              "displayName": "sender_email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "sender_domain",
+              "displayName": "sender_domain",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "first_seen_this_week",
+              "displayName": "first_seen_this_week",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_subject",
+              "displayName": "last_subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "count_this_week",
+              "displayName": "count_this_week",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "unsubscribe_method",
+              "displayName": "unsubscribe_method",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "unsubscribe_target",
+              "displayName": "unsubscribe_target",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "decision",
+              "displayName": "decision",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "decision_at",
+              "displayName": "decision_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "f9336fc5-2384-4487-9019-1c07d0e2c29d",
+      "name": "Save Unique Senders",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        432,
+        112
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "sz5NKilchrJgzsru",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "6400591434",
+        "text": "=📬 This week, *{{ $json.sender_email }}* emailed you {{ $json.count_this_week }}x\nLast: \"{{ $json.last_subject }}\"\n\nUnsubscribe or keep?",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "🚫 Unsubscribe",
+                    "additionalFields": {
+                      "callback_data": "=unsub|{{ $json.uuid }}"
+                    }
+                  },
+                  {
+                    "text": "✅ Keep",
+                    "additionalFields": {
+                      "callback_data": "=keep|{{ $json.uuid }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "584e144d-1fb0-42b5-ab40-222b7d7240cc",
+      "name": "Send Unsubscribe Prompt",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        704,
+        112
+      ],
+      "webhookId": "6f324892-2c89-4fa4-8df8-939476176e07",
+      "credentials": {
+        "telegramApi": {
+          "id": "e1hHtBEfIWBasJb9",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {
+    "Every Friday 6pm": [
+      {
+        "json": {
+          "timestamp": "2026-07-20T16:20:37.045-04:00",
+          "Readable date": "July 20th 2026, 4:20:37 pm",
+          "Readable time": "4:20:37 pm",
+          "Day of week": "Monday",
+          "Year": "2026",
+          "Month": "July",
+          "Day of month": "20",
+          "Hour": "16",
+          "Minute": "20",
+          "Second": "37",
+          "Timezone": "America/New_York (UTC-04:00)"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Every Friday 6pm": {
+      "main": [
+        [
+          {
+            "node": "Get Promo Mentions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Promo Mentions": {
+      "main": [
+        [
+          {
+            "node": "Get Sender Preferences",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Sender Preferences": {
+      "main": [
+        [
+          {
+            "node": "Group Into Unique Senders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Group Into Unique Senders": {
+      "main": [
+        [
+          {
+            "node": "Save Unique Senders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Unique Senders": {
+      "main": [
+        [
+          {
+            "node": "Send Unsubscribe Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "53874682-f049-4c34-b18c-974e6751f275",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "36f1f84b1ee3610e43131bdce5adf045326f2dd9eee626dcc02d492cdb812525"
+  },
+  "nodeGroups": [],
+  "id": "Kqnsr5hMqdWlZk9l",
+  "tags": []
+}

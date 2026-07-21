@@ -1,0 +1,479 @@
+{
+  "name": "4 - Daily Subscription Reminders",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Daily Subscription Reminders\n\nRuns every morning at 6am. This is the piece that makes the tracker independent of whether the company actually sends a reminder — it checks dates you already recorded, not incoming mail.\n\nAlso doubles as the Monday weekly-schedule sender: on Mondays it additionally pulls the full week's upcoming events and sends a summary.",
+        "height": 300,
+        "width": 380
+      },
+      "id": "54b293b5-4325-4174-b84a-ad1485374d13",
+      "name": "Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * *"
+            }
+          ]
+        }
+      },
+      "id": "b12c02a5-554b-4f3c-b8f3-04499126d2bf",
+      "name": "Every Day 6am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        224,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "value": "1lyJz3yrbF05xh-7HIhuTicdiqNCNU_3B8fsZWpYUkps",
+          "mode": "id"
+        },
+        "sheetName": {
+          "value": "Subscriptions Tracker",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "status",
+              "lookupValue": "active"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3196d042-7b37-40db-b947-9f179096eb72",
+      "name": "Get Active Tracker Rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        512,
+        336
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "sz5NKilchrJgzsru",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $('Get Active Tracker Rows').all().map(i => i.json);\nconst today = new Date(); today.setHours(0,0,0,0);\nconst twoDaysOut = new Date(today); twoDaysOut.setDate(today.getDate() + 2);\nconst fmt = d => d.toISOString().slice(0,10);\n\nconst due = [];\nfor (const r of rows) {\n  if (!r.event_date) continue;\n  if (r.event_date === fmt(twoDaysOut) && r.reminder_2day_sent !== true && r.reminder_2day_sent !== 'true') {\n    due.push({ ...r, reminder_type: '2day' });\n  }\n  if (r.event_date === fmt(today) && r.reminder_dayof_sent !== true && r.reminder_dayof_sent !== 'true') {\n    due.push({ ...r, reminder_type: 'dayof' });\n  }\n}\nreturn due.map(d => ({ json: d }));"
+      },
+      "id": "4723f2e4-410b-4cfe-96b6-a7cf67e145b6",
+      "name": "Find Due Reminders",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1024,
+        208
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "chatId": "6400591434",
+        "text": "={{ $json.reminder_type === '2day' ? '⏰ In 2 days: ' + $json.entity_name + ' (' + $json.event_type + ') — ' + $json.event_date : '📅 Today: ' + $json.entity_name + ' (' + $json.event_type + ')' }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "173c5102-0d7d-4dfc-85a7-01af5bf0d5b3",
+      "name": "Send Reminder",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1280,
+        128
+      ],
+      "webhookId": "250e12ea-2cbb-45c3-9256-569ae43468e6",
+      "credentials": {
+        "telegramApi": {
+          "id": "e1hHtBEfIWBasJb9",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "value": "1lyJz3yrbF05xh-7HIhuTicdiqNCNU_3B8fsZWpYUkps",
+          "mode": "id"
+        },
+        "sheetName": {
+          "value": "Subscriptions Tracker",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $('Get Active Tracker Rows').item.json.row_number }}",
+            "reminder_2day_sent": "={{ $('Get Active Tracker Rows').item.json.reminder_2day_sent }}",
+            "reminder_dayof_sent": "={{ $('Get Active Tracker Rows').item.json.reminder_dayof_sent }}"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "entity_id",
+              "displayName": "entity_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "entity_name",
+              "displayName": "entity_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "event_type",
+              "displayName": "event_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "event_date",
+              "displayName": "event_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "calendar_event_id",
+              "displayName": "calendar_event_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "reminder_2day_sent",
+              "displayName": "reminder_2day_sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reminder_dayof_sent",
+              "displayName": "reminder_dayof_sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "confirmed_by_company_reminder",
+              "displayName": "confirmed_by_company_reminder",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "first_detected_at",
+              "displayName": "first_detected_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "last_updated_at",
+              "displayName": "last_updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "598cc637-97b6-4530-9fb5-7ed2f7a329f9",
+      "name": "Mark Reminder Sent",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1552,
+        128
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "sz5NKilchrJgzsru",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $now.weekday }}",
+              "rightValue": 1,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "71f492b4-4e6e-4ab0-ae6d-112ecda90008",
+      "name": "Is Monday?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        768,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "value": "1lyJz3yrbF05xh-7HIhuTicdiqNCNU_3B8fsZWpYUkps",
+          "mode": "id"
+        },
+        "sheetName": {
+          "value": "Subscriptions Tracker",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "status",
+              "lookupValue": "active"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e188983e-5a1a-40bb-88db-a2995a88a80d",
+      "name": "Get This Week's Events",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1024,
+        400
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "sz5NKilchrJgzsru",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(i => i.json);\nconst today = new Date(); today.setHours(0,0,0,0);\nconst weekEnd = new Date(today); weekEnd.setDate(today.getDate() + 7);\nconst inWeek = rows.filter(r => {\n  if (!r.event_date) return false;\n  const d = new Date(r.event_date);\n  return d >= today && d < weekEnd;\n}).sort((a,b) => new Date(a.event_date) - new Date(b.event_date));\n\nif (inWeek.length === 0) {\n  return [{ json: { summary: '📅 This week: nothing on the tracker. Clean slate.' } }];\n}\nconst lines = inWeek.map(r => `• ${r.event_date} — ${r.entity_name} (${r.event_type})`);\nreturn [{ json: { summary: '📅 This week\\'s schedule:\\n\\n' + lines.join('\\n') } }];"
+      },
+      "id": "3d56657e-66b6-4006-8115-354090d7bc41",
+      "name": "Build Weekly Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "6400591434",
+        "text": "={{ $json.summary }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "6d829436-a788-4ffe-862b-3fe6250afc45",
+      "name": "Send Weekly Summary",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1552,
+        400
+      ],
+      "webhookId": "42442890-3b9c-434c-a863-7b98d7e4dd2b",
+      "credentials": {
+        "telegramApi": {
+          "id": "e1hHtBEfIWBasJb9",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Every Day 6am": {
+      "main": [
+        [
+          {
+            "node": "Get Active Tracker Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Active Tracker Rows": {
+      "main": [
+        [
+          {
+            "node": "Find Due Reminders",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Is Monday?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Due Reminders": {
+      "main": [
+        [
+          {
+            "node": "Send Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Reminder": {
+      "main": [
+        [
+          {
+            "node": "Mark Reminder Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Monday?": {
+      "main": [
+        [
+          {
+            "node": "Get This Week's Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get This Week's Events": {
+      "main": [
+        [
+          {
+            "node": "Build Weekly Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Weekly Summary": {
+      "main": [
+        [
+          {
+            "node": "Send Weekly Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "37d4520b-f54f-4b62-b69c-881aee182539",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "36f1f84b1ee3610e43131bdce5adf045326f2dd9eee626dcc02d492cdb812525"
+  },
+  "nodeGroups": [],
+  "id": "LUzBBO0wbmXrwiTq",
+  "tags": []
+}
